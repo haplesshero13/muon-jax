@@ -1,7 +1,7 @@
 """
-Muon Hybrid Optimizer - Muon for matrices, AdamW for everything else
+Muon Optax Optimizer
 
-Based on KellerJordan's MuonWithAuxAdam:
+Based on KellerJordan's Reference Implementation:
 https://github.com/KellerJordan/Muon/blob/master/muon.py
 
 """
@@ -23,7 +23,7 @@ class MuonState(NamedTuple):
     count: jnp.ndarray  # Step counter
 
 
-def create_muon(
+def muon(
     learning_rate: float,
     momentum: float = 0.95,
     nesterov: bool = True,
@@ -119,7 +119,7 @@ def create_muon(
     )
 
 
-def create_muon_with_adam(
+def muon_with_adam(
     muon_params: set[str],
     muon_lr: float = 0.05,
     muon_momentum: float = 0.95,
@@ -142,12 +142,12 @@ def create_muon_with_adam(
 
     Example:
     ```python
-            # Identify matrix parameters for Muon
+            # Identify matrix parameters for Muon in a Set
             muon_param_names = {
                 'layer1.weight', 'layer2.weight', 'layer3.weight'
             }
 
-            optimizer = create_muon_with_adam(
+            optimizer = muon_with_adam(
                 muon_params=muon_param_names,
                 muon_lr=0.05,
                 adam_lr=0.0003,
@@ -163,7 +163,7 @@ def create_muon_with_adam(
         return "muon" if path_str in muon_params else "adam"
 
     muon_transform = optax.chain(
-        create_muon(learning_rate=1.0, momentum=muon_momentum),
+        muon(learning_rate=1.0, momentum=muon_momentum),
         optax.add_decayed_weights(weight_decay)
         if weight_decay > 0
         else optax.identity(),

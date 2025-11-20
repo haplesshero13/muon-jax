@@ -3,7 +3,7 @@ import jax.nn as jnn
 import optax
 from jax import numpy as jnp
 
-from src.optax_muon import create_muon_with_adam
+from src.optax_muon import muon_with_adam
 
 
 def test_training_run_learning_rates():
@@ -23,7 +23,7 @@ def test_training_run_learning_rates():
             },
         }
 
-        optimizer = create_muon_with_adam(
+        optimizer = muon_with_adam(
             muon_params={"layer1.weight", "layer2.weight"},
             muon_lr=muon_lr,
             adam_lr=adam_lr,

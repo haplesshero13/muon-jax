@@ -1,7 +1,7 @@
 import jax
 from jax import numpy as jnp
 
-from src.optax_muon import create_muon_with_adam
+from src.optax_muon import muon_with_adam
 
 
 class TestMuonAdam:
@@ -10,7 +10,7 @@ class TestMuonAdam:
     def test_muon_optimization_only(self):
         params = {"weight": jnp.ones((20, 20))}
 
-        optimizer = create_muon_with_adam(
+        optimizer = muon_with_adam(
             muon_params={"weight"},
             muon_lr=0.02,
             adam_lr=0.001,
@@ -51,7 +51,7 @@ class TestMuonAdam:
         # Specify which parameters use Muon
         muon_param_names = {"layer1_weight", "layer2_weight"}
 
-        optimizer = create_muon_with_adam(
+        optimizer = muon_with_adam(
             muon_params=muon_param_names,
             muon_lr=0.02,
             adam_lr=0.001,
