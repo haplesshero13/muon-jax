@@ -1,162 +1,92 @@
 import jax
-import optax
 from jax import numpy as jnp
 
-from src.muon_adam import create_muon_hybrid_optimizer, create_param_labels
+from src.optax_muon import create_muon_with_adam
 
 
 class TestMuonAdam:
-    """Test parameter labeling logic"""
+    """Test basic Optax GradientTransformation functionality"""
 
-    def test_default_labeling_simple(self):
-        """Test default labeling on simple params"""
-        params = {
-            "embed": jnp.ones((1000, 128)),  # 2D but embed → adam
-            "layer1_weight": jnp.ones((128, 64)),  # 2D hidden → muon
-            "layer1_bias": jnp.ones((128,)),  # 1D → adam
-            "lm_head": jnp.ones((1000, 128)),  # 2D but lm_head → adam
-        }
+    def test_muon_optimization_only(self):
+        params = {"weight": jnp.ones((20, 20))}
 
-        labels = create_param_labels(params)
+        optimizer = create_muon_with_adam(
+            muon_params={"weight"},
+            muon_lr=0.02,
+            adam_lr=0.001,
+        )
 
-        assert labels["embed"] == "adam"
-        assert labels["layer1_weight"] == "muon"
-        assert labels["layer1_bias"] == "adam"
-        assert labels["lm_head"] == "adam"
-
-    def test_default_labeling_nested(self):
-        """Test default labeling on nested structure"""
-        params = {
-            "embeddings": {
-                "token": jnp.ones((1000, 128)),
-                "position": jnp.ones((512, 128)),
-            },
-            "layers": {
-                "layer0": {
-                    "attention": {
-                        "q_proj": jnp.ones((128, 128)),
-                        "k_proj": jnp.ones((128, 128)),
-                        "v_proj": jnp.ones((128, 128)),
-                    },
-                    "mlp": {
-                        "up": jnp.ones((128, 512)),
-                        "down": jnp.ones((512, 128)),
-                    },
-                    "ln1_weight": jnp.ones((128,)),
-                    "ln2_weight": jnp.ones((128,)),
-                }
-            },
-            "lm_head": jnp.ones((1000, 128)),
-        }
-
-        labels = create_param_labels(params)
-
-        # Embeddings → adam
-        assert "adam" in labels["embeddings/token"]
-        assert "adam" in labels["embeddings/position"]
-
-        # Hidden matrices → muon
-        assert labels["layers/layer0/attention/q_proj"] == "muon"
-        assert labels["layers/layer0/mlp/up"] == "muon"
-
-        # Layernorm weights (1D) → adam
-        assert labels["layers/layer0/ln1_weight"] == "adam"
-
-        # LM head → adam
-        assert labels["lm_head"] == "adam"
-
-    def test_custom_labeling_function(self):
-        """Test custom labeling function"""
-        params = {
-            "special_matrix": jnp.ones((100, 100)),
-            "normal_matrix": jnp.ones((100, 100)),
-        }
-
-        def custom_fn(path_str, param):
-            # Only use Muon for params with 'special' in name
-            return "special" in path_str and param.ndim >= 2
-
-        labels = create_param_labels(params, custom_fn)
-
-        assert labels["special_matrix"] == "muon"
-        assert labels["normal_matrix"] == "adam"
-
-    def test_optimizer_creation(self):
-        """Test that hybrid optimizer can be created"""
-        params = {
-            "embed": jnp.ones((100, 64)),
-            "hidden": jnp.ones((64, 32)),
-            "bias": jnp.ones((32,)),
-        }
-
-        optimizer = create_muon_hybrid_optimizer(params, muon_lr=0.02, adam_lr=3e-4)
-
-        # Should initialize without error
         state = optimizer.init(params)
-        assert state is not None
+        grads = {"weight": jax.random.normal(jax.random.PRNGKey(0), (20, 20))}
+        updates, _ = optimizer.update(grads, state)
 
-    def test_update_step(self):
-        """Test single optimization step"""
+        # The update should have gone through Newton-Schulz orthogonalization
+        # We can detect this by checking the structure is "different" from raw gradients
+
+        # Simple check: Muon update should NOT just be a scaled version of gradient
+        update = -updates["weight"]
+
+        # Normalize both to compare structure
+        update_normalized = update / (jnp.linalg.norm(update) + 1e-8)
+        grad_normalized = grads["weight"] / (jnp.linalg.norm(grads["weight"]) + 1e-8)
+
+        # Cosine similarity - if Muon is applied, structure should change significantly
+        similarity = float(jnp.sum(update_normalized * grad_normalized))
+
+        # Perfect similarity would be 1.0, we want it notably different
+        assert similarity < 0.95, (
+            f"Update too similar to raw gradient (similarity={similarity:.4f}). "
+            "Expected Muon orthogonalization to change structure."
+        )
+
+    def test_mixed_muon_and_adam_parameters(self):
+        """Test that we can have some parameters use Muon and others use Adam simultaneously."""
         params = {
-            "hidden": jnp.ones((64, 32)),
-            "bias": jnp.ones((32,)),
+            "layer1_weight": jnp.ones((20, 20)),  # Matrix - should use Muon
+            "layer1_bias": jnp.zeros((20,)),  # Vector - should use Adam
+            "layer2_weight": jnp.ones((10, 20)),  # Matrix - should use Muon
+            "layer2_bias": jnp.zeros((10,)),  # Vector - should use Adam
         }
 
-        grads = jax.tree.map(lambda x: jnp.ones_like(x) * 0.1, params)
+        # Specify which parameters use Muon
+        muon_param_names = {"layer1_weight", "layer2_weight"}
 
-        optimizer = create_muon_hybrid_optimizer(params)
+        optimizer = create_muon_with_adam(
+            muon_params=muon_param_names,
+            muon_lr=0.02,
+            adam_lr=0.001,
+        )
+
         state = optimizer.init(params)
 
-        updates, new_state = optimizer.update(grads, state, params)
-
-        assert "hidden" in updates
-        assert "bias" in updates
-        assert not jnp.allclose(updates["hidden"], jnp.zeros_like(updates["hidden"]))
-
-    def test_different_optimizers_applied(self):
-        """Test that Muon and Adam produce different updates"""
-        params = {
-            "muon_param": jnp.ones((50, 50)),  # Should use Muon
-            "adam_param": jnp.ones((50,)),  # Should use Adam
-        }
-
-        # Same gradients
+        # Create gradients for all parameters
         grads = {
-            "muon_param": jnp.ones((50, 50)) * 0.1,
-            "adam_param": jnp.ones((50,)) * 0.1,
+            "layer1_weight": jax.random.normal(jax.random.PRNGKey(0), (20, 20)),
+            "layer1_bias": jnp.ones((20,)) * 0.1,
+            "layer2_weight": jax.random.normal(jax.random.PRNGKey(1), (10, 20)),
+            "layer2_bias": jnp.ones((10,)) * 0.1,
         }
 
-        optimizer = create_muon_hybrid_optimizer(params)
-        state = optimizer.init(params)
+        updates, new_state = optimizer.update(grads, state)
 
-        updates, _ = optimizer.update(grads, state, params)
+        # Verify all parameters got updates
+        assert "layer1_weight" in updates
+        assert "layer1_bias" in updates
+        assert "layer2_weight" in updates
+        assert "layer2_bias" in updates
 
-        # Updates should be different (Muon orthogonalizes, Adam doesn't)
-        # Just check they exist and have right shapes
-        assert updates["muon_param"].shape == (50, 50)
-        assert updates["adam_param"].shape == (50,)
-
-    def test_training_loop(self):
-        """Test full training loop with hybrid optimizer"""
-        # Simple model
-        params = {
-            "layer1": {"weight": jnp.ones((128, 64)), "bias": jnp.zeros((128,))},
-            "layer2": {"weight": jnp.ones((64, 10)), "bias": jnp.zeros((64,))},
-        }
-
-        optimizer = create_muon_hybrid_optimizer(params, muon_lr=0.02, adam_lr=0.001)
-        state = optimizer.init(params)
-
-        # Run 10 steps
-        for step in range(10):
-            grads = jax.tree.map(
-                lambda p: jax.random.normal(jax.random.PRNGKey(step), p.shape) * 0.01,
-                params,
+        # Verify Muon parameters are approximately orthogonal
+        for param_name in ["layer1_weight", "layer2_weight"]:
+            update = -updates[param_name]
+            product = update @ update.T
+            identity = jnp.eye(update.shape[0])
+            error = float(jnp.max(jnp.abs(product - identity)))
+            assert error < 1.0, (
+                f"{param_name} should use Muon (orthogonal updates), got error {error:.4f}"
             )
 
-            updates, state = optimizer.update(grads, state, params)
-            params = optax.apply_updates(params, updates)
-
-            # Check no NaN
-            flat_params = jax.tree_util.tree_leaves(params)
-            assert not any(jnp.any(jnp.isnan(p)) for p in flat_params)
+        # Verify Adam parameters have non-zero updates (basic sanity check)
+        for param_name in ["layer1_bias", "layer2_bias"]:
+            assert not jnp.allclose(updates[param_name], 0.0), (
+                f"{param_name} should use Adam (non-zero updates)"
+            )

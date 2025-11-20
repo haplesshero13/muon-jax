@@ -2,7 +2,7 @@ import jax
 import optax
 from jax import numpy as jnp
 
-from src.muon import muon
+from src.optax_muon import create_muon
 
 
 class TestMuon:
@@ -12,7 +12,7 @@ class TestMuon:
         """Test initialization with simple parameters"""
         params = {"weight": jnp.ones((10, 5)), "bias": jnp.zeros((10,))}
 
-        optimizer = muon(learning_rate=0.02)
+        optimizer = create_muon(learning_rate=0.02)
         state = optimizer.init(params)
 
         # Check state structure
@@ -34,7 +34,7 @@ class TestMuon:
             "layer2": {"weight": jnp.ones((10, 5)), "bias": jnp.zeros((10,))},
         }
 
-        optimizer = muon(learning_rate=0.02)
+        optimizer = create_muon(learning_rate=0.02)
         state = optimizer.init(params)
 
         muon_state = state[0]
@@ -49,7 +49,7 @@ class TestMuon:
         params = {"weight": jnp.ones((10, 5))}
         grads = {"weight": jnp.ones((10, 5)) * 0.1}
 
-        optimizer = muon(learning_rate=0.02)
+        optimizer = create_muon(learning_rate=0.02)
         state = optimizer.init(params)
 
         updates, new_state = optimizer.update(grads, state)
@@ -68,7 +68,7 @@ class TestMuon:
         params = {"weight": jnp.ones((10, 5))}
         grads = {"weight": jnp.ones((10, 5)) * 0.1}
 
-        optimizer = muon(learning_rate=0.02)
+        optimizer = create_muon(learning_rate=0.02)
         state = optimizer.init(params)
 
         updates, state = optimizer.update(grads, state)
@@ -81,7 +81,7 @@ class TestMuon:
         """Test multiple optimization steps"""
         params = {"weight": jnp.ones((10, 5))}
 
-        optimizer = muon(learning_rate=0.02)
+        optimizer = create_muon(learning_rate=0.02)
         state = optimizer.init(params)
 
         # Take 5 steps
@@ -98,7 +98,7 @@ class TestMuon:
         """Test that Muon can be chained with other transformations"""
         optimizer = optax.chain(
             optax.clip_by_global_norm(1.0),
-            muon(learning_rate=0.02),
+            create_muon(learning_rate=0.02),
         )
 
         params = {"weight": jnp.ones((10, 5))}
@@ -121,7 +121,7 @@ class TestMuon:
         )
 
         optimizer = optax.chain(
-            muon(learning_rate=1.0, momentum=0.95),
+            create_muon(learning_rate=1.0, momentum=0.95),
             optax.scale_by_schedule(schedule),
         )
 
@@ -139,7 +139,7 @@ class TestMuon:
 
     def test_gradient_accumulation(self):
         """Test with gradient accumulation"""
-        optimizer = muon(learning_rate=0.02)
+        optimizer = create_muon(learning_rate=0.02)
 
         params = {"weight": jnp.ones((10, 5))}
         state = optimizer.init(params)
@@ -163,7 +163,7 @@ class TestMuon:
         """Test that momentum accumulates correctly"""
         params = {"weight": jnp.ones((10, 10))}
 
-        optimizer = muon(learning_rate=0.02, momentum=0.95)
+        optimizer = create_muon(learning_rate=0.02, momentum=0.95)
         state = optimizer.init(params)
 
         # Same gradient repeatedly
@@ -183,7 +183,9 @@ class TestMuon:
         """Test that orthogonalization is applied to 2D parameters"""
         params = {"weight": jnp.ones((50, 50))}
 
-        optimizer = muon(learning_rate=1.0, momentum=0.0)  # No momentum for simplicity
+        optimizer = create_muon(
+            learning_rate=1.0, momentum=0.0
+        )  # No momentum for simplicity
         state = optimizer.init(params)
 
         grad = {"weight": jax.random.normal(jax.random.PRNGKey(0), (50, 50))}
@@ -201,7 +203,7 @@ class TestMuon:
         """Test that 1D parameters skip orthogonalization"""
         params = {"bias": jnp.ones((100,))}
 
-        optimizer = muon(learning_rate=1.0, momentum=0.0, nesterov=False)
+        optimizer = create_muon(learning_rate=1.0, momentum=0.0, nesterov=False)
         state = optimizer.init(params)
 
         grad = {"bias": jnp.ones((100,)) * 0.1}
@@ -216,11 +218,11 @@ class TestMuon:
         grad = {"weight": jax.random.normal(jax.random.PRNGKey(0), (20, 20)) * 0.1}
 
         # Nesterov
-        opt_nesterov = muon(learning_rate=0.02, momentum=0.95, nesterov=True)
+        opt_nesterov = create_muon(learning_rate=0.02, momentum=0.95, nesterov=True)
         state_nesterov = opt_nesterov.init(params)
 
         # Standard
-        opt_standard = muon(learning_rate=0.02, momentum=0.95, nesterov=False)
+        opt_standard = create_muon(learning_rate=0.02, momentum=0.95, nesterov=False)
         state_standard = opt_standard.init(params)
 
         # Take one step with each
@@ -234,7 +236,7 @@ class TestMuon:
         """Test that update function can be JIT compiled"""
         params = {"weight": jnp.ones((10, 5))}
 
-        optimizer = muon(learning_rate=0.02)
+        optimizer = create_muon(learning_rate=0.02)
         state = optimizer.init(params)
 
         # JIT compile the update
@@ -252,7 +254,7 @@ class TestMuon:
         params = {"weight": jnp.ones((10, 5))}
         grad = {"weight": jax.random.normal(jax.random.PRNGKey(0), (10, 5))}
 
-        optimizer = muon(learning_rate=0.02)
+        optimizer = create_muon(learning_rate=0.02)
         state = optimizer.init(params)
 
         # Run twice
@@ -273,7 +275,7 @@ class TestMuon:
         def loss_fn(params):
             return jnp.sum((params["W"] - target) ** 2)
 
-        optimizer = muon(learning_rate=0.1, momentum=0.9)
+        optimizer = create_muon(learning_rate=0.1, momentum=0.9)
         state = optimizer.init(params)
 
         losses = []
@@ -294,7 +296,7 @@ class TestMuon:
             "layer3": {"weight": jnp.ones((32, 10)), "bias": jnp.zeros((32,))},
         }
 
-        optimizer = muon(learning_rate=0.02)
+        optimizer = create_muon(learning_rate=0.02)
         state = optimizer.init(params)
 
         # Simulate 10 training steps
