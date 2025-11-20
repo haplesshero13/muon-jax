@@ -8,6 +8,6 @@ This package is just a demo for now. If you want to use it, simply copy in the c
 
 ## Usage
 
-See the test/ package and `main.py` for usage examples.
+See the `test/` package and `main.py` for usage examples.
 
-Original author: https://github.com/KellerJordan/Muon
+Adapted from: https://github.com/KellerJordan/Muon
